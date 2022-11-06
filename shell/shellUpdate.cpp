@@ -6,8 +6,10 @@
 #include <unordered_map>
 #include <map>
 #include <unistd.h>
-//#include <sys/wait.h>
 #include<algorithm>
+//#include <sys/wait.h>
+//#include<signal>
+
 
 using namespace std;
 
@@ -34,7 +36,12 @@ public:
 
 	static const char* getEnvironmentVariableValue(string str) {
         if (str[0] == '$') {
-            return getenv(str.substr(1).c_str());
+            char* val = getenv(str.substr(1).c_str());
+            if(val == NULL){
+                cout<<"Environment variable "+str+" not fount!"<<endl;
+                exit(1);
+            }
+            return val;
 		}
 		return str.c_str();
 	}
@@ -71,7 +78,7 @@ public:
 	static bool cmd_echo(int &currentIndex, vector<string> tokens) {
         if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
             for (auto it = tokens.begin() + currentIndex; it != tokens.end(); it++) {
-                printf("\t var: %s\n", getEnvironmentVariableValue((*it)));
+                printf("%s ", getEnvironmentVariableValue((*it)));
             }
             currentIndex++;
             return true;
@@ -178,6 +185,7 @@ public:
             exit(1);
         }
         if(pid == 0){
+            //setpgid(0,0);
             if (execvp(tokens[currentIndex].c_str(), newARGV) < 0) {     
                 printf("Child: ERROR: exec failed\n");
                 exit(1);
@@ -187,6 +195,7 @@ public:
             if(!isBackground){
                 //waitpid(pid, &status, 0);
             }
+            //killpg(pid, SIGINT);
         }
         return true;
     }

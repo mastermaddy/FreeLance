@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <map>
 #include <unistd.h>
-#include<vector>
+//#include <sys/wait.h>
 #include<algorithm>
 
 using namespace std;
@@ -151,9 +151,16 @@ public:
         return true;
 	}
 
-    char** createProgramArguments(){
+    char** createProgramArguments(bool &isBackground){
         vector<char*> vec;
-        transform(begin(tokens), end(tokens),
+        int offset = 1;
+        if(tokens.size()>1){
+            if(tokens[1]=="&"){
+                isBackground = true;
+                offset++;
+            }
+        }
+        transform(begin(tokens)+offset, end(tokens),
                 back_inserter(vec),
                 [](string& s){ s.push_back(0); return &s[0]; });
         vec.push_back(nullptr);
@@ -162,12 +169,23 @@ public:
     }
 
     bool tryExecuteForkCommand(int &currentIndex){
-        char** newARGV = createProgramArguments();
+        bool isBackground = false;
+        int status;
+        char** newARGV = createProgramArguments(isBackground);
         pid_t pid;// = fork();
-        if (pid == 0) {          
+        if(pid < 0){
+            printf("Fork Failed\n");
+            exit(1);
+        }
+        if(pid == 0){
             if (execvp(tokens[currentIndex].c_str(), newARGV) < 0) {     
-                printf("*** ERROR: exec failed\n");
+                printf("Child: ERROR: exec failed\n");
                 exit(1);
+            }
+        }
+        else{
+            if(!isBackground){
+                //waitpid(pid, &status, 0);
             }
         }
         return true;

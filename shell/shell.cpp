@@ -6,12 +6,13 @@
 #include <unordered_map>
 #include <map>
 #include <unistd.h>
- 
- 
+#include<algorithm>
+#include <sys/wait.h>
+#include<signal.h>
+
 using namespace std;
- 
+
 extern char** environ;
- 
 /*
 1. cd
 2. pwd
@@ -19,16 +20,33 @@ extern char** environ;
 4. env
 5. setenv
 */
- 
 class Commands {
 public:
-    Commands() {
- 
+	Commands() {
+	}
+
+    static bool isNumberOfArgumentsCorrect(int a, int b, int c){
+        return a-b>c;
     }
- // verify cd  output
-    bool cmd_cd(vector<string> tokens) {
-        if (tokens[1][0] == '$') {
-            int ch = chdir(getenv(tokens[1].substr(1).c_str()));
+
+	static const char* getEnvironmentVariableValue(string str) {
+        if (str[0] == '$') {
+            char* val = getenv(str.substr(1).c_str());
+            if(val == NULL){
+                cout<<"Environment variable "+str+" not fount!"<<endl;
+                exit(1);
+            }
+            return val;
+		}
+		return str.c_str();
+	}
+
+	// verify cd output
+	static bool cmd_cd(int &currentIndex, vector<string> tokens) {
+		if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
+            const char* path = getEnvironmentVariableValue(tokens[currentIndex]);
+            int ch = chdir(path);
+            currentIndex++;
             if (ch != 0) {
                 printf("chdir change of directory not successful\n");
                 return false;
@@ -37,158 +55,219 @@ public:
                 return true;
             }
         }
-        else {
-            int ch = chdir(tokens[1].substr(0).c_str());
-            if (ch !=0) {
-                printf("chdir change of directory not successful\n");
-                return false;
-            }
-            else {
-                return true;
-            }
-        }
-        return true;
-    }
- 
-    bool cmd_pwd(vector<string> tokens) {
+        return false;
+	}
 
-        puts("Path info by use environment variable PWD:");
-        printf("\tWorkdir: %s\n", getenv("PWD"));
-        printf("\tFilepath: %s/%s\n", getenv("PWD"), __FILE__);
-        return true;
-    }
- 
-    bool cmd_echo(vector<string> tokens) {
-        for( auto it = tokens.begin()+1; it!= tokens.end(); it++){
-            if ((*it)[0] == '$') {
-                printf("\t var: %s\n", getenv((*it).substr(1).c_str()));
-            }
-            else {
-                printf("\t var: %s\n",(*it).c_str());
-            }
-        }
-        return true;
-    }
- 
-    bool cmd_env(vector<string> tokens) {
-    for (int i=0; environ[i]!=NULL; i++) {
-        printf("%d: %s\n", i, environ[i]);
-    }
-
-        return true;
-    }
- 
-    bool cmd_setenv(vector<string> tokens) {
-        setenv(tokens[1].c_str(), tokens[2].c_str(), 1);
-        printf("\tvariablename: %s\n", getenv(tokens[1].c_str()));
-        printf("\tvariablevsal: %s\n", getenv(tokens[2].c_str()));
-
-        return true;
-    }
-};
-
-class CommandManager {
-private:
-    Commands command;
-    vector<string> tokens;
-public:
-    CommandManager() {
-    }
- 
-    bool executeCommand() {
-        if (tryExecuteBuiltInCommand(tokens[0])) {
+	static bool cmd_pwd(int &currentIndex, vector<string> tokens) {
+        if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
+            printf("\tWorkdir: %s\n", getenv("PWD"));
+            printf("\tFilepath: %s/%s\n", getenv("PWD"), __FILE__);
             return true;
         }
         return false;
-    }
- 
-    bool tryExecuteBuiltInCommand(string cmdName) {
-        if (cmdName == "cd") {
-            return command.cmd_cd(tokens);
+	}
+
+	static bool cmd_echo(int &currentIndex, vector<string> tokens) {
+        if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
+            for (auto it = tokens.begin() + currentIndex; it != tokens.end(); it++) {
+                printf("%s ", getEnvironmentVariableValue((*it)));
+            }
+            currentIndex++;
+            return true;
         }
-        else if (cmdName == "pwd") {
-            return command.cmd_pwd(tokens);
+		return false;
+	}
+
+	static bool cmd_env(int &currentIndex, vector<string> tokens) {
+        if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
+            for (int i = 0; environ[i] != NULL; i++) {
+                printf("%d: %s\n", i, environ[i]);
+            }
+            return true;
         }
-        else if (cmdName == "echo") {
-            return command.cmd_echo(tokens);
+		return false;
+	}
+
+	static bool cmd_exit(int &currentIndex, vector<string> tokens) {
+        if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,-1)){
+            exit(0);
         }
-        else if (cmdName == "env") {
-            return command.cmd_env(tokens);
+		return false;
+	}
+	
+	static bool cmd_setenv(int &currentIndex, vector<string> tokens) {
+        if(isNumberOfArgumentsCorrect(tokens.size(),currentIndex,1)){
+            const char* var_name = getEnvironmentVariableValue(tokens[currentIndex].c_str());
+            const char* var_value = getEnvironmentVariableValue(tokens[currentIndex+1].c_str());
+            setenv(tokens[currentIndex].c_str(), var_value, 1);
+            
+            printf("%s: %s\n", tokens[currentIndex].c_str(), var_value);
+            currentIndex+=2;
+            return true;
         }
-        else if (cmdName == "setenv") {
-            return command.cmd_setenv(tokens);
-        }
-        else {
-            return false;
-        }
-    }
- 
-    void createToken(string rawCommand, char delim = ' ') {
-        cout<<"RAW: "<<rawCommand<<endl;
-        string token;
-        stringstream ss(rawCommand);
-        tokens.clear();
-        while (getline(ss, token, delim)) {
-            tokens.push_back(token);
-        }
-    }
- 
-    void print() {
-        for (auto s : tokens) {
-            cout << s << endl;
-        }
-    }
+		return false;
+	}
+
+	map<string, bool(*)(int&,vector<string>)> GetCommandMap() {
+		map<string, bool(*)(int&,vector<string>)> commandMap;
+		commandMap["cd"] = cmd_cd;
+		commandMap["pwd"] = cmd_pwd;
+		commandMap["echo"] = cmd_echo;
+		commandMap["env"] = cmd_env;
+		commandMap["setenv"] = cmd_setenv;
+		commandMap["exit"] = cmd_exit;
+		return commandMap;
+	}
 };
- 
- 
-// int main(int argc, char** argv, char** envp)
-// {
-//     CommandManager cmd;
-//     string raw_command;
-//     while (true) {
-//         cout << "\n> ";
-//         getline(cin, raw_command);
-//         cmd.createToken(raw_command);
-//         bool status = cmd.executeCommand();
-//         if (!status) {
-//             break;
-//         }
-//         //cmd.print();
-//     }
-// }
 
-// PART 2///////////////////////////////////////////////////////////////////
-int main(int argc, char** argv, char** envp)
-{
-	CommandManager cmd;
-	if (argc > 1) {
-        string commandlist;
-        for( int i = 1; i< argc; i++)
-        {
-            commandlist+= argv[i];
-            if(i<argc)
-                commandlist+= " ";
+
+class CommandManager {
+private:
+	Commands command;
+	vector<string> tokens;
+	map<string, bool(*)(int&,vector<string>)> commandMap;
+public:
+	CommandManager() {
+		commandMap = command.GetCommandMap();
+	}
+
+	bool executeCommand() {
+        int i;
+        int status;
+        for(i=0;i<tokens.size();){
+        	status = tryExecuteBuiltInCommand(i);
+        	if(status > 0){
+        		continue;
+        	}
+		    else if(status<0){
+		    	return false;	
+		    }
+            status = tryExecuteForkCommand(i);
+            if(status > 0){
+        		continue;
+        	}
+		    else if(status<0){
+		    	return false;	
+		    }
         }
-        cout<<"Commandlist: "<<commandlist<<endl;
-        cout<<"1"<<endl;
-		pid_t pid = fork();
-        cout<<"//////////////////////////////////////////////////////////////////////////";
-        cout<<"2"<<endl;
-		cmd.createToken(commandlist);
-        cout<<"3"<<endl;
-		bool status = cmd.executeCommand();
+        return false;
+	}
 
-        // cmd.createToken("env");
-        // cout<<"3"<<endl;
-	    // status = cmd.executeCommand();
 
-        if (pid == 0) {          
-            if (execvp("./temp", argv) < 0) {     
-                printf("*** ERROR: exec failed\n");
-                exit(1);
+	int tryExecuteBuiltInCommand(int &currentIndex) {
+		for (auto cmnd : commandMap) {
+			if (cmnd.first == tokens[currentIndex]){
+                currentIndex += 1;
+				bool status = commandMap[cmnd.first](currentIndex, tokens);
+				if(status == false) return -1;
+				return 1;
+			}
+		}
+        return 0;
+	}
+
+    vector<char *> createProgramArguments(int &currentIndex, bool &isBackground){
+        vector<char*> vec;
+        int offset = 0;
+        if(tokens.size()>currentIndex+1){
+            if(tokens[currentIndex + 1]=="&"){
+            transform(begin(tokens)+currentIndex, begin(tokens)+currentIndex+1,
+            back_inserter(vec),
+            [](string& s){ s.push_back(0); return &s[0]; });
+                isBackground = true;
+                currentIndex++;
             }
         }
-        
-          cout<<"4"<<endl;
+        if(currentIndex < tokens.size()&& !isBackground) {
+            transform(begin(tokens)+currentIndex, end(tokens),
+            back_inserter(vec),
+            [](string& s){ s.push_back(0); return &s[0]; });
+        }
+
+        vec.push_back(nullptr);
+        char** carray = vec.data();
+        currentIndex = tokens.size();
+        return vec;
+    }
+
+    int tryExecuteForkCommand(int &currentIndex){
+        bool isBackground = false;
+        int status;
+
+	vector<char *> newvec = createProgramArguments(currentIndex,isBackground);
+        char** newARGV = newvec.data();
+        pid_t pid = fork();
+        if(pid < 0){
+            printf("Fork Failed\n");
+            exit(1);
+        }
+        if(pid == 0){
+        cout<<"child running"<<endl;
+            if (execvp(newARGV[0], newARGV) < 0){
+            //if (execvp(tokens[currentIndex].c_str(), newARGV) < 0) {     
+                printf("Child: ERROR: exec failed\n");
+                exit(1);
+            }
+            cout<<"parent exiting "<<endl;
+            exit(0);
+        }
+        else{
+            if(!isBackground){
+                waitpid(pid, &status, 0);       
+                cout<<"parent running"<<endl;
+            }
+            else{
+                cout<<" Child is running in the background";
+            }
+        }
+        return 0;
+    }
+
+	void createToken(string rawCommand, char delim = ' ') {
+		string token;
+		stringstream ss(rawCommand);
+		tokens.clear();
+		while (getline(ss, token, delim)) {
+			tokens.push_back(token);
+            
+		}
 	}
+
+    string createRawCommand(int argc, char** argv){
+        string rawCommand = "";
+        for(int i=1;i<argc;++i){
+            rawCommand += argv[i];
+            rawCommand += " ";
+        }
+        return rawCommand;
+    }
+
+	void print() {
+		for (auto s : tokens) {
+			cout << s << endl;
+		}
+	}
+};
+
+void sig_handler(int signum){
+  signal(SIGINT,sig_handler);   // Re Register signal handler for default action
+}
+
+int main(int argc, char** argv, char** envp) {
+//    signal(SIGINT,SIG_IGN);
+    signal(SIGINT,sig_handler);
+	CommandManager cmd;
+	string raw_command;
+    if(argc > 1){
+        raw_command = cmd.createRawCommand(argc, argv);
+        cmd.createToken(raw_command);
+        bool status = cmd.executeCommand();
+    }
+    
+    while (true) {
+        cout << "\n> ";
+        getline(cin, raw_command);
+        cmd.createToken(raw_command);
+        bool status = cmd.executeCommand();
+    }
 }
